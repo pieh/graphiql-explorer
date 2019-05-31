@@ -135,6 +135,8 @@ const checkboxEmpty = (
     />
   </svg>
 );
+console.log(React)
+const FragmentsContext = React.createContext([]);
 
 const Checkbox = props => {
   return props.checked ? checkboxChecked : checkboxEmpty;
@@ -853,6 +855,8 @@ class AbstractView extends React.PureComponent<AbstractViewProps, {}> {
         </span>
         {selection ? (
           <div style={{marginLeft: 16}}>
+            <FragmentsSpreadView type={implementingType}                   selections={childSelections}
+                  modifySelections={this._modifyChildSelections}/>
             {Object.keys(fields)
               .sort()
               .map(fieldName => (
@@ -963,6 +967,72 @@ function defaultArgs(
     }
   }
   return args;
+}
+
+class FragmentSpreadView extends React.PureComponent {
+  _removeFromSelection = () => {
+    console.log(`remove ${this.props.fragmentSpread.name}`, this.props.selections, this.props.modifySelections)
+
+    this.props.modifySelections(this.props.selections.filter(s => !(s.kind === `FragmentSpread` && s.name.value === this.props.fragmentSpread.name)))
+  }
+
+  _addToSelection = () => {
+    this.props.modifySelections([
+      ...this.props.selections,
+      {
+        kind: `FragmentSpread`,
+        name: {
+          kind: `Name`,
+          value: this.props.fragmentSpread.name
+        }
+      }
+    ])
+  }
+
+  render() {
+    const { selected, fragmentSpread, type } = this.props
+return (<div >
+<span
+  title={fragmentSpread.name}
+  style={{
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    minHeight: '16px',
+  }}
+  data-fragment-name={fragmentSpread.name}
+  data-field-type={type.name}
+  onClick={selected ? this._removeFromSelection : this._addToSelection}>
+  
+  <Checkbox checked={selected} />
+  <span style={{color: '#D2054E'}}>...{fragmentSpread.name}</span>
+</span>
+</div>)
+  }
+}
+
+class FragmentsSpreadView extends React.PureComponent {
+  render() {
+    const { type, selections, modifySelections } = this.props
+    console.log('f', selections)
+    return (<FragmentsContext.Consumer>
+          {fragments => {
+            const fragmentSpreads = isObjectType(type) ? fragments.reduce((acc, fragmentDefinition) => {
+              if (fragmentDefinition.typeCondition.name.value === type.name) {
+                acc.push({
+                  name: fragmentDefinition.name.value
+                })
+
+              }
+              return acc
+            }, []) : []
+
+            return (<React.Fragment>
+              {fragmentSpreads.map(fragmentSpread => <FragmentSpreadView key={fragmentSpread.name} type={type} fragmentSpread={fragmentSpread} selections={selections} selected={selections && selections.find(field => field.kind === `FragmentSpread` && field.name.value === fragmentSpread.name)} modifySelections={modifySelections}/>)}
+            </React.Fragment>)
+          }}
+</FragmentsContext.Consumer>          )
+  }
 }
 
 class FieldView extends React.PureComponent<FieldViewProps, {}> {
@@ -1160,15 +1230,19 @@ class FieldView extends React.PureComponent<FieldViewProps, {}> {
       (isObjectType(type) || isInterfaceType(type) || isUnionType(type))
     ) {
       const fields = isUnionType(type) ? {} : type.getFields();
+
+
+
       const childSelections = selection
         ? selection.selectionSet
           ? selection.selectionSet.selections
           : []
         : [];
-      return (
-        <div>
+      return (<div>
           {node}
           <div style={{marginLeft: 16}}>
+            <FragmentsSpreadView type={type} selections={childSelections} modifySelections={this._modifyChildSelections}/>
+            
             {Object.keys(fields)
               .sort()
               .map(fieldName => (
@@ -1204,8 +1278,8 @@ class FieldView extends React.PureComponent<FieldViewProps, {}> {
                   ))
               : null}
           </div>
-        </div>
-      );
+        </div>)
+
     }
     return node;
   }
@@ -1451,7 +1525,7 @@ class Explorer extends React.PureComponent<Props, State> {
   _onEdit = (query: string): void => this.props.onEdit(query);
 
   render() {
-    const {schema, query, makeDefaultArg} = this.props;
+    const {schema, query, makeDefaultArg, gatsbyFragments = ``} = this.props;
 
     if (!schema) {
       return (
@@ -1471,12 +1545,14 @@ class Explorer extends React.PureComponent<Props, State> {
     const subscriptionFields = subscriptionType && subscriptionType.getFields();
 
     const parsedQuery: DocumentNode = memoizeParseQuery(query);
+    const parsedGatsbyFragments: DocumentNode = memoizeParseQuery(gatsbyFragments);
+    console.log({ parsedGatsbyFragments })
     const getDefaultFieldNames =
       this.props.getDefaultFieldNames || defaultGetDefaultFieldNames;
     const getDefaultScalarArgValue =
       this.props.getDefaultScalarArgValue || defaultGetDefaultScalarArgValue;
 
-    const definitions = parsedQuery.definitions;
+    const definitions = [...parsedQuery.definitions, ...parsedGatsbyFragments.definitions];
 
     const _relevantOperations = definitions
       .map(definition => {
@@ -1489,6 +1565,8 @@ class Explorer extends React.PureComponent<Props, State> {
         }
       })
       .filter(Boolean);
+
+    const fragmentDefinitions = _relevantOperations.filter(definition => definition.kind === `FragmentDefinition`)
 
     const relevantOperations =
       // If we don't have any relevant definitions from the parsed document,
@@ -1591,6 +1669,7 @@ class Explorer extends React.PureComponent<Props, State> {
     };
 
     return (
+      <FragmentsContext.Provider value={fragmentDefinitions}>
       <div
         ref={ref => {
           this._ref = ref;
@@ -1712,6 +1791,7 @@ class Explorer extends React.PureComponent<Props, State> {
           </button>
         </div>
       </div>
+      </FragmentsContext.Provider>
     );
   }
 }
